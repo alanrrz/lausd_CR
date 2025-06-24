@@ -46,7 +46,6 @@ def haversine(lon1, lat1, lon2, lat2):
     )
     return 2 * R * math.asin(math.sqrt(a))
 
-# --- Streamlit UI ---
 st.title("LAUSD School Buffer Address Finder")
 
 school_list = schools["label"].sort_values().tolist()
@@ -75,28 +74,27 @@ if st.session_state["show_map"]:
     slon, slat = row["lon"], row["lat"]
     radius = radius_selected
 
-    addresses["distance"] = addresses.apply(
-        lambda r: haversine(slon, slat, r["lon"], r["lat"]), axis=1
-    )
-    within = addresses[addresses["distance"] <= radius]
-
+    # Just show marker and buffer, not address points
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=school_selected, icon=folium.Icon(color="blue")).add_to(fmap)
     folium.Circle([slat, slon], radius=radius*1609.34, color='red', fill=True, fill_opacity=0.1).add_to(fmap)
-    for _, row2 in within.head(200).iterrows():
-        folium.CircleMarker([row2["lat"], row2["lon"]], radius=2, color='green').add_to(fmap)
 
-    st.write(f"**Preview:** {len(within)} addresses found within {radius} miles. (First 200 shown on map)")
+    st.write(f"**Preview:** Buffer around {school_selected} ({radius} miles). If this looks correct, you can download the CSV below.")
     st_folium(fmap, width=700, height=500)
 
-    # CSV download
-    csv = within[["address","lon","lat","distance"]].to_csv(index=False)
-    st.download_button(
-        label=f"Download CSV ({school_selected}_{radius}mi.csv)",
-        data=csv,
-        file_name=f"{school_selected.replace(' ', '_')}_{radius}mi.csv",
-        mime='text/csv'
-    )
+    # Show Download button only after preview
+    if st.button("Download CSV"):
+        addresses["distance"] = addresses.apply(
+            lambda r: haversine(slon, slat, r["lon"], r["lat"]), axis=1
+        )
+        within = addresses[addresses["distance"] <= radius]
+        csv = within[["address","lon","lat","distance"]].to_csv(index=False)
+        st.download_button(
+            label=f"Download CSV ({school_selected}_{radius}mi.csv)",
+            data=csv,
+            file_name=f"{school_selected.replace(' ', '_')}_{radius}mi.csv",
+            mime='text/csv'
+        )
 else:
     st.info("Select school and radius, then click 'Preview Map'.")
 
