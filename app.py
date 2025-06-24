@@ -8,7 +8,6 @@ from pyproj import Transformer
 import requests
 import os
 
-# --- Download Data from Dropbox (cache for session) ---
 @st.cache_data
 def download_and_load():
     dropbox_urls = {
@@ -33,7 +32,6 @@ addresses[["lon", "lat"]] = np.array(tr_addr.transform(addresses["lon"].values, 
 tr_sch = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
 schools[["lon", "lat"]] = np.array(tr_sch.transform(schools["lon"].values, schools["lat"].values)).T
 
-# --- Haversine distance function ---
 def haversine(lon1, lat1, lon2, lat2):
     R = 3959  # miles
     dlat = math.radians(lat2 - lat1)
@@ -46,55 +44,58 @@ def haversine(lon1, lat1, lon2, lat2):
     )
     return 2 * R * math.asin(math.sqrt(a))
 
-st.title("LAUSD School Buffer Address Finder")
+st.title("LAUSD Campus Buffer Address Finder")
 
-school_list = schools["label"].sort_values().tolist()
-school_selected = st.selectbox("Select School", school_list)
+site_list = schools["label"].sort_values().tolist()
+site_selected = st.selectbox("Select Campus", site_list)
 radius_selected = st.select_slider(
     "Radius (miles)",
     options=[round(x/10,1) for x in range(1,7)] + list(range(1,6)),
     value=0.5
 )
 
-# Session state to remember whether to show the map
 if "show_map" not in st.session_state:
     st.session_state["show_map"] = False
+if "csv_ready" not in st.session_state:
+    st.session_state["csv_ready"] = False
 
-# Button Row
 col1, col2 = st.columns([1, 1])
 with col1:
     if st.button("Preview Map"):
         st.session_state["show_map"] = True
+        st.session_state["csv_ready"] = True
 with col2:
     if st.button("Reset"):
         st.session_state["show_map"] = False
+        st.session_state["csv_ready"] = False
 
 if st.session_state["show_map"]:
-    row = schools[schools["label"] == school_selected].iloc[0]
+    row = schools[schools["label"] == site_selected].iloc[0]
     slon, slat = row["lon"], row["lat"]
     radius = radius_selected
 
-    # Just show marker and buffer, not address points
+    # CSV generation for addresses in buffer
+    addresses["distance"] = addresses.apply(
+        lambda r: haversine(slon, slat, r["lon"], r["lat"]), axis=1
+    )
+    within = addresses[addresses["distance"] <= radius]
+    csv = within[["address","lon","lat","distance"]].to_csv(index=False)
+
+    # Download button (always above map)
+    st.download_button(
+        label=f"Download CSV ({site_selected}_{radius}mi.csv)",
+        data=csv,
+        file_name=f"{site_selected.replace(' ', '_')}_{radius}mi.csv",
+        mime='text/csv'
+    )
+
+    # Map (just marker and buffer)
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
-    folium.Marker([slat, slon], tooltip=school_selected, icon=folium.Icon(color="blue")).add_to(fmap)
+    folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
     folium.Circle([slat, slon], radius=radius*1609.34, color='red', fill=True, fill_opacity=0.1).add_to(fmap)
 
-    st.write(f"**Preview:** Buffer around {school_selected} ({radius} miles). If this looks correct, you can download the CSV below.")
+    st.write(f"**Preview:** Buffer around {site_selected} ({radius} miles). If this looks correct, use the button above to download.")
     st_folium(fmap, width=700, height=500)
-
-    # Show Download button only after preview
-    if st.button("Download CSV"):
-        addresses["distance"] = addresses.apply(
-            lambda r: haversine(slon, slat, r["lon"], r["lat"]), axis=1
-        )
-        within = addresses[addresses["distance"] <= radius]
-        csv = within[["address","lon","lat","distance"]].to_csv(index=False)
-        st.download_button(
-            label=f"Download CSV ({school_selected}_{radius}mi.csv)",
-            data=csv,
-            file_name=f"{school_selected.replace(' ', '_')}_{radius}mi.csv",
-            mime='text/csv'
-        )
 else:
-    st.info("Select school and radius, then click 'Preview Map'.")
+    st.info("Select campus and radius, then click 'Preview Map'.")
 
