@@ -8,7 +8,7 @@ from pyproj import Transformer
 import requests
 import os
 
-# --- Download Data from Dropbox (once per session) ---
+# --- Download Data from Dropbox (cache for session) ---
 @st.cache_data
 def download_and_load():
     dropbox_urls = {
@@ -51,20 +51,35 @@ st.title("LAUSD School Buffer Address Finder")
 
 school_list = schools["label"].sort_values().tolist()
 school_selected = st.selectbox("Select School", school_list)
-radius_selected = st.select_slider("Radius (miles)", options=[round(x/10,1) for x in range(1,7)] + list(range(1,6)), value=0.5)
+radius_selected = st.select_slider(
+    "Radius (miles)",
+    options=[round(x/10,1) for x in range(1,7)] + list(range(1,6)),
+    value=0.5
+)
 
-if st.button("Preview Map"):
+# Session state to remember whether to show the map
+if "show_map" not in st.session_state:
+    st.session_state["show_map"] = False
+
+# Button Row
+col1, col2 = st.columns([1, 1])
+with col1:
+    if st.button("Preview Map"):
+        st.session_state["show_map"] = True
+with col2:
+    if st.button("Reset"):
+        st.session_state["show_map"] = False
+
+if st.session_state["show_map"]:
     row = schools[schools["label"] == school_selected].iloc[0]
     slon, slat = row["lon"], row["lat"]
     radius = radius_selected
 
-    # Calculate distances and filter
     addresses["distance"] = addresses.apply(
         lambda r: haversine(slon, slat, r["lon"], r["lat"]), axis=1
     )
     within = addresses[addresses["distance"] <= radius]
 
-    # Build map
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=school_selected, icon=folium.Icon(color="blue")).add_to(fmap)
     folium.Circle([slat, slon], radius=radius*1609.34, color='red', fill=True, fill_opacity=0.1).add_to(fmap)
@@ -74,7 +89,7 @@ if st.button("Preview Map"):
     st.write(f"**Preview:** {len(within)} addresses found within {radius} miles. (First 200 shown on map)")
     st_folium(fmap, width=700, height=500)
 
-    # Option to download
+    # CSV download
     csv = within[["address","lon","lat","distance"]].to_csv(index=False)
     st.download_button(
         label=f"Download CSV ({school_selected}_{radius}mi.csv)",
