@@ -52,7 +52,7 @@ site_list = schools["label"].sort_values().tolist()
 site_selected = st.selectbox("Select Campus", site_list)
 radius_selected = st.select_slider(
     "Select Radius (How far from the school site?)",
-    options=[round(x/10,1) for x in range(1,7)] + list(range(1,6)),
+    options=[round(x,2) for x in [0.15,0.25,0.35,0.5,0.75,1,2,3,4,5]],
     value=0.5
 )
 
