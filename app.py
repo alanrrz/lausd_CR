@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import math
 import folium
+from folium.plugins import Draw
 from streamlit_folium import st_folium
-from shapely.geometry import Point, Polygon, shape
+from shapely.geometry import Point, shape
 
 # --- REGION FILES ---
 REGION_URLS = {
@@ -51,31 +51,37 @@ if site_selected:
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
 
-    draw_options = {
-        "polyline": False,
-        "rectangle": True,
-        "circle": False,
-        "polygon": True,
-        "marker": False,
-        "circlemarker": False,
-    }
-    edit_options = {"edit": True}
+    draw = Draw(
+        export=True,
+        filename='drawn.geojson',
+        position='topleft',
+        draw_options={
+            'polyline': False,
+            'rectangle': True,
+            'circle': False,
+            'polygon': True,
+            'marker': False,
+            'circlemarker': False,
+        },
+        edit_options={'edit': True}
+    )
+    draw.add_to(fmap)
 
     st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed.**")
-    map_data = st_folium(fmap, width=700, height=500, returned_objects=["last_active_drawing", "all_drawings"],
-                         draw_options=draw_options, edit_options=edit_options)
+    map_data = st_folium(fmap, width=700, height=500)
 
-    selected = None
-    if map_data and map_data.get("all_drawings"):
-        selected = map_data["all_drawings"]
-        # st.write("DEBUG: Drawn shapes:", selected)  # Uncomment for debugging shapes
+    features = []
+    if map_data and "all_drawings" in map_data and map_data["all_drawings"]:
+        features = map_data["all_drawings"]
+    elif map_data and "last_active_drawing" in map_data and map_data["last_active_drawing"]:
+        features = [map_data["last_active_drawing"]]
 
     if st.button("Filter Addresses in Drawn Area(s)"):
-        if not selected or len(selected) == 0:
+        if not features or len(features) == 0:
             st.warning("Please draw at least one rectangle or polygon to select blocks.")
         else:
             polygons = []
-            for feature in selected:
+            for feature in features:
                 # Convert each geojson geometry to a shapely shape
                 try:
                     geojson_geom = feature["geometry"]
