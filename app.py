@@ -47,7 +47,6 @@ if site_selected:
     addresses["LAT"] = pd.to_numeric(addresses["LAT"], errors="coerce")
     addresses["LON"] = pd.to_numeric(addresses["LON"], errors="coerce")
 
-    # ---- Draw on Map ----
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
 
@@ -77,12 +76,12 @@ if site_selected:
         features = [map_data["last_active_drawing"]]
 
     if st.button("Filter Addresses in Drawn Area(s)"):
+        st.write(f"Features drawn: {len(features)}" if features else "Features drawn: 0")
         if not features or len(features) == 0:
             st.warning("Please draw at least one rectangle or polygon to select blocks.")
         else:
             polygons = []
             for feature in features:
-                # Convert each geojson geometry to a shapely shape
                 try:
                     geojson_geom = feature["geometry"]
                     shapely_geom = shape(geojson_geom)
@@ -101,8 +100,10 @@ if site_selected:
 
             filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
 
-            st.success(f"{len(filtered)} addresses found inside drawn area(s).")
+            st.write(f"Filtered addresses count: {len(filtered)}")
             if not filtered.empty:
+                st.write("Preview of addresses found in area:")
+                st.write(filtered[["FullAddress"]].head(5))  # Show a sample
                 csv = filtered[["FullAddress"]].rename(columns={"FullAddress": "Address"}).to_csv(index=False)
                 st.download_button(
                     label=f"Download Addresses ({site_selected}_custom_blocks.csv)",
