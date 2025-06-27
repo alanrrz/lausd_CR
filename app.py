@@ -4,93 +4,108 @@ import numpy as np
 import math
 import folium
 from streamlit_folium import st_folium
-from pyproj import Transformer
-import requests
-import os
+from shapely.geometry import Point, Polygon, shape
+
+# --- REGION FILES ---
+REGION_URLS = {
+    "CENTRAL": "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/b0d5501614753fa530532c2f55a48eea4bed7607/C.csv",
+    "EAST": "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/b0d5501614753fa530532c2f55a48eea4bed7607/E.csv",
+    "NORTHEAST": "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/b0d5501614753fa530532c2f55a48eea4bed7607/NE.csv",
+    "NORTHWEST": "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/b0d5501614753fa530532c2f55a48eea4bed7607/NW.csv",
+    "SOUTH": "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/b0d5501614753fa530532c2f55a48eea4bed7607/S.csv",
+    "WEST": "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/d6d9a1384a8a677bdf135b49ddd6540cdfc02cbc/W.csv"
+}
+SCHOOLS_URL = "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/ab73deb13c0a02107f43001161ab70891630a9c7/schools.csv"
 
 @st.cache_data
-def download_and_load():
-    dropbox_urls = {
-        "addresses.csv": "https://www.dropbox.com/scl/fi/ika7darb79t1zbuzjpj90/addresses.csv?rlkey=h8anuof8jc4n70ynsrwd9svue&st=7rbiczlv&dl=1",
-        "schools.csv": "https://www.dropbox.com/scl/fi/qt5wmh9raabpjjykuvslt/schools.csv?rlkey=m7xtw0790sfv9djxz62h2ypzk&st=9aho2onv&dl=1"
-    }
-    for fname, url in dropbox_urls.items():
-        if not os.path.isfile(fname):
-            r = requests.get(url)
-            with open(fname, "wb") as f:
-                f.write(r.content)
-    schools = pd.read_csv("schools.csv", sep=",")
-    addresses = pd.read_csv("addresses.csv", sep=";")
-    return schools, addresses
+def load_schools():
+    return pd.read_csv(SCHOOLS_URL)
 
-schools, addresses = download_and_load()
+st.title("Draw Custom Blocks: School Community Address Finder")
+st.caption("Draw rectangles or polygons to select which blocks/areas you want to notify. Only addresses inside your shapes will be exported.")
 
-# --- Coordinate conversion ---
-tr_addr = Transformer.from_crs("EPSG:2229", "EPSG:4326", always_xy=True)
-addresses[["lon", "lat"]] = np.array(tr_addr.transform(addresses["lon"].values, addresses["lat"].values)).T
-
-tr_sch = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
-schools[["lon", "lat"]] = np.array(tr_sch.transform(schools["lon"].values, schools["lat"].values)).T
-
-def haversine(lon1, lat1, lon2, lat2):
-    R = 3959  # miles
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat/2)**2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon/2)**2
-    )
-    return 2 * R * math.asin(math.sqrt(a))
-
-# ====== CUSTOMIZED APP WORDING ======
-st.title("School Community Address Finder")
-st.caption("Find addresses near your selected school site for stakeholder notification and community engagement.")
-
-site_list = schools["label"].sort_values().tolist()
+schools = load_schools()
+schools.columns = schools.columns.str.strip()
+site_list = schools["LABEL"].sort_values().tolist()
 site_selected = st.selectbox("Select Campus", site_list)
-radius_selected = st.select_slider(
-    "Select Radius (How far from the school site?)",
-    options = [round(x, 2) for x in [i * 0.01 for i in range(10, 301)]],
-    value=0.5
-)
 
-if "show_map" not in st.session_state:
-    st.session_state["show_map"] = False
+if site_selected:
+    selected_school_row = schools[schools["LABEL"] == site_selected].iloc[0]
+    school_region = selected_school_row["SHORTNAME"].upper()
+    slon, slat = selected_school_row["LON"], selected_school_row["LAT"]
 
-col1, col2 = st.columns([1, 1])
-with col1:
-    if st.button("Preview Map"):
-        st.session_state["show_map"] = True
-with col2:
-    if st.button("Reset"):
-        st.session_state["show_map"] = False
+    if school_region not in REGION_URLS:
+        st.error(f"No addresses file found for region: {school_region}")
+        st.stop()
 
-if st.session_state["show_map"]:
-    row = schools[schools["label"] == site_selected].iloc[0]
-    slon, slat = row["lon"], row["lat"]
-    radius = radius_selected
+    @st.cache_data
+    def load_addresses(url):
+        return pd.read_csv(url)
 
-    addresses["distance"] = addresses.apply(
-        lambda r: haversine(slon, slat, r["lon"], r["lat"]), axis=1
-    )
-    within = addresses[addresses["distance"] <= radius]
-    csv = within[["address","lon","lat","distance"]].to_csv(index=False)
+    addresses = load_addresses(REGION_URLS[school_region])
+    addresses.columns = addresses.columns.str.strip()
+    addresses["LAT"] = pd.to_numeric(addresses["LAT"], errors="coerce")
+    addresses["LON"] = pd.to_numeric(addresses["LON"], errors="coerce")
 
-    st.download_button(
-        label=f"Download Nearby Addresses ({site_selected}_{radius}mi.csv)",
-        data=csv,
-        file_name=f"{site_selected.replace(' ', '_')}_{radius}mi.csv",
-        mime='text/csv'
-    )
-
+    # ---- Draw on Map ----
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
-    folium.Circle([slat, slon], radius=radius*1609.34, color='red', fill=True, fill_opacity=0.1).add_to(fmap)
 
-    st.write(f"**Preview:** The red area shows all addresses included in your download. Adjust your campus or radius as needed before downloading.")
-    st_folium(fmap, width=700, height=500)
+    draw_options = {
+        "polyline": False,
+        "rectangle": True,
+        "circle": False,
+        "polygon": True,
+        "marker": False,
+        "circlemarker": False,
+    }
+    edit_options = {"edit": True}
+
+    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed.**")
+    map_data = st_folium(fmap, width=700, height=500, returned_objects=["last_active_drawing", "all_drawings"],
+                         draw_options=draw_options, edit_options=edit_options)
+
+    selected = None
+    if map_data and map_data.get("all_drawings"):
+        selected = map_data["all_drawings"]
+        # st.write("DEBUG: Drawn shapes:", selected)  # Uncomment for debugging shapes
+
+    if st.button("Filter Addresses in Drawn Area(s)"):
+        if not selected or len(selected) == 0:
+            st.warning("Please draw at least one rectangle or polygon to select blocks.")
+        else:
+            polygons = []
+            for feature in selected:
+                # Convert each geojson geometry to a shapely shape
+                try:
+                    geojson_geom = feature["geometry"]
+                    shapely_geom = shape(geojson_geom)
+                    polygons.append(shapely_geom)
+                except Exception as e:
+                    st.error(f"Could not interpret a drawn shape: {e}")
+
+            if not polygons:
+                st.error("No valid polygons drawn.")
+                st.stop()
+
+            # For each address, check if it's in ANY polygon
+            def point_in_polygons(row):
+                pt = Point(row["LON"], row["LAT"])
+                return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
+
+            filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
+
+            st.success(f"{len(filtered)} addresses found inside drawn area(s).")
+            if not filtered.empty:
+                csv = filtered[["FullAddress"]].rename(columns={"FullAddress": "Address"}).to_csv(index=False)
+                st.download_button(
+                    label=f"Download Addresses ({site_selected}_custom_blocks.csv)",
+                    data=csv,
+                    file_name=f"{site_selected.replace(' ', '_')}_custom_blocks.csv",
+                    mime='text/csv'
+                )
+            else:
+                st.info("No addresses found within the drawn area(s).")
+
 else:
-    st.info("Select campus and radius, then click 'Preview Map'.")
-
+    st.info("Select a campus above to begin.")
