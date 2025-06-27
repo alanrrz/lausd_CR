@@ -21,8 +21,12 @@ SCHOOLS_URL = "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/ab7
 def load_schools():
     return pd.read_csv(SCHOOLS_URL)
 
-st.title("Draw Custom Blocks: School Community Address Finder")
-st.caption("Draw rectangles or polygons to select which blocks/areas you want to notify. Only addresses inside your shapes will be exported.")
+st.title("School Community Address Finder")
+st.caption(
+    "Find addresses near your selected school site for stakeholder notification and community engagement. "
+    "Draw rectangles or polygons on the map to select exactly the blocks or areas you want included. "
+    "Only addresses inside your drawn shapes will be exported for download."
+)
 
 schools = load_schools()
 schools.columns = schools.columns.str.strip()
