@@ -1,8 +1,7 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
 import folium
-from folium.plugins import Draw, MeasureControl
+from folium.plugins import Draw
 from streamlit_folium import st_folium
 from shapely.geometry import Point, shape
 
@@ -23,8 +22,9 @@ def load_schools():
 
 st.title("School Community Address Finder")
 st.caption(
-    "Draw a circle, rectangle, or polygon to select addresses within your area. "
-    "For circles, the radius is shown in miles. Only addresses inside the shapes will be exported."
+    "Find addresses near your selected school site for stakeholder notification and community engagement. "
+    "Draw rectangles or polygons on the map to select exactly the blocks or areas you want included. "
+    "Only addresses inside your drawn shapes will be exported for download."
 )
 
 schools = load_schools()
@@ -53,7 +53,6 @@ if site_selected:
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
 
-    # Enable draw with circle
     draw = Draw(
         export=True,
         filename='drawn.geojson',
@@ -61,7 +60,7 @@ if site_selected:
         draw_options={
             'polyline': False,
             'rectangle': True,
-            'circle': True,
+            'circle': False,
             'polygon': True,
             'marker': False,
             'circlemarker': False,
@@ -70,7 +69,7 @@ if site_selected:
     )
     draw.add_to(fmap)
 
-    st.write("**Draw a circle, rectangle, or polygon on the map. Circles will show radius in miles and filter addresses inside them.**")
+    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed.**")
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
@@ -80,63 +79,43 @@ if site_selected:
         features = [map_data["last_active_drawing"]]
 
     if st.button("Filter Addresses in Drawn Area(s)"):
+        st.write(f"Features drawn: {len(features)}" if features else "Features drawn: 0")
         if not features or len(features) == 0:
-            st.warning("Please draw at least one shape to select blocks.")
-            st.stop()
-
-        polygons = []
-        circles_info = []
-
-        for feature in features:
-            try:
-                geojson_geom = feature["geometry"]
-                if geojson_geom["type"] == "Polygon":
-                    polygons.append(shape(geojson_geom))
-                elif geojson_geom["type"] == "Point" and "radius" in feature:
-                    center = Point(geojson_geom["coordinates"])
-                    radius_m = feature["radius"]
-                    radius_deg = radius_m / 111_320  # meters to degrees
-                    circle = center.buffer(radius_deg)
-                    polygons.append(circle)
-                    circles_info.append((center, radius_m))
-            except Exception as e:
-                st.error(f"Could not interpret a drawn shape: {e}")
-
-        if not polygons:
-            st.error("No valid shapes drawn.")
-            st.stop()
-
-        # Show circle info in miles
-        for i, (center, radius_m) in enumerate(circles_info, 1):
-            radius_miles = radius_m * 0.000621371
-            st.markdown(
-                f"""
-                **Circle {i}**
-                - Center: ({center.y:.5f}, {center.x:.5f})
-                - Radius: ~ **{radius_miles:.2f} miles**
-                """
-            )
-
-        # 👇 properly indented here!
-        def point_in_polygons(row):
-            pt = Point(row["LON"], row["LAT"])
-            return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
-
-        filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
-
-        st.write(f"Filtered addresses count: {len(filtered)}")
-        if not filtered.empty:
-            st.write("Preview of addresses found in area:")
-            st.write(filtered[["FullAddress"]].head(5))
-            csv = filtered[["FullAddress"]].rename(columns={"FullAddress": "Address"}).to_csv(index=False)
-            st.download_button(
-                label=f"Download Addresses ({site_selected}_custom_blocks.csv)",
-                data=csv,
-                file_name=f"{site_selected.replace(' ', '_')}_custom_blocks.csv",
-                mime='text/csv'
-            )
+            st.warning("Please draw at least one rectangle or polygon to select blocks.")
         else:
-            st.info("No addresses found within the drawn area(s).")
+            polygons = []
+            for feature in features:
+                try:
+                    geojson_geom = feature["geometry"]
+                    shapely_geom = shape(geojson_geom)
+                    polygons.append(shapely_geom)
+                except Exception as e:
+                    st.error(f"Could not interpret a drawn shape: {e}")
+
+            if not polygons:
+                st.error("No valid polygons drawn.")
+                st.stop()
+
+            # For each address, check if it's in ANY polygon
+            def point_in_polygons(row):
+                pt = Point(row["LON"], row["LAT"])
+                return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
+
+            filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
+
+            st.write(f"Filtered addresses count: {len(filtered)}")
+            if not filtered.empty:
+                st.write("Preview of addresses found in area:")
+                st.write(filtered[["FullAddress"]].head(5))  # Show a sample
+                csv = filtered[["FullAddress"]].rename(columns={"FullAddress": "Address"}).to_csv(index=False)
+                st.download_button(
+                    label=f"Download Addresses ({site_selected}_custom_blocks.csv)",
+                    data=csv,
+                    file_name=f"{site_selected.replace(' ', '_')}_custom_blocks.csv",
+                    mime='text/csv'
+                )
+            else:
+                st.info("No addresses found within the drawn area(s).")
 
 else:
     st.info("Select a campus above to begin.")
