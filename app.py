@@ -25,25 +25,51 @@ def load_schools():
 def load_addresses(url):
     return pd.read_csv(url)
 
-def parse_address(line):
+def parse_address_expanded(line):
     try:
         parsed, _ = usaddress.tag(line)
-        return {
-            "House Number": parsed.get("AddressNumber", ""),
-            "Street": " ".join([
-                parsed.get("StreetNamePreDirectional", ""),
-                parsed.get("StreetName", ""),
-                parsed.get("StreetNamePostType", ""),
-                parsed.get("StreetNamePostDirectional", ""),
-            ]).strip(),
-            "Unit": parsed.get("OccupancyIdentifier", ""),
-            "City": parsed.get("PlaceName", ""),
-            "State": parsed.get("StateName", ""),
-            "ZIP": parsed.get("ZipCode", ""),
+        house_num = parsed.get("AddressNumber", "")
+        street = " ".join([
+            parsed.get("StreetNamePreDirectional", ""),
+            parsed.get("StreetName", ""),
+            parsed.get("StreetNamePostType", ""),
+            parsed.get("StreetNamePostDirectional", ""),
+        ]).strip()
+        unit = parsed.get("OccupancyIdentifier", "")
+        city = parsed.get("PlaceName", "")
+        state = parsed.get("StateName", "")
+        zip_code = parsed.get("ZipCode", "")
+
+        rows = []
+        # expand unit if it's a range
+        if unit and "-" in unit:
+            parts = unit.replace("–", "-").split("-")
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                start = int(parts[0])
+                end = int(parts[1])
+                for u in range(start, end + 1):
+                    rows.append({
+                        "House Number": house_num,
+                        "Street": street,
+                        "Unit": str(u),
+                        "City": city,
+                        "State": state,
+                        "ZIP": zip_code,
+                        "Original": line
+                    })
+                return rows
+        # fallback — single row
+        return [{
+            "House Number": house_num,
+            "Street": street,
+            "Unit": unit,
+            "City": city,
+            "State": state,
+            "ZIP": zip_code,
             "Original": line
-        }
+        }]
     except usaddress.RepeatedLabelError:
-        return {
+        return [{
             "House Number": "",
             "Street": "",
             "Unit": "",
@@ -51,7 +77,7 @@ def parse_address(line):
             "State": "",
             "ZIP": "",
             "Original": line
-        }
+        }]
 
 st.title("📍 School Community Address Finder")
 st.caption(
@@ -98,14 +124,18 @@ if site_selected:
             'marker': False,
             'circlemarker': False,
         },
-        edit_options={'edit': True}
+        edit_options={
+            'edit': True,
+            'remove': True,
+        }
     )
     draw.add_to(fmap)
 
     # Add measuring tool in miles
     fmap.add_child(MeasureControl(primary_length_unit='miles'))
 
-    st.write("**Draw one or more rectangles or polygons on the map. You can also use the measuring tool to check distances in miles.**")
+    st.info("📐 Tip: After drawing your shape, click the starting point or double‑click to finish. Use the trash icon to delete and redraw if needed.")
+
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
@@ -142,11 +172,14 @@ if site_selected:
         if filtered.empty:
             result_container.info("No addresses found within the drawn area(s).")
         else:
-            parsed_rows = [parse_address(addr) for addr in filtered["FullAddress"].tolist()]
-            parsed_df = pd.DataFrame(parsed_rows)
+            all_rows = []
+            for addr in filtered["FullAddress"].tolist():
+                all_rows.extend(parse_address_expanded(addr))
+
+            parsed_df = pd.DataFrame(all_rows)
 
             with result_container:
-                st.markdown(f"### 📝 Parsed Addresses Preview ({len(filtered)} addresses)")
+                st.markdown(f"### 📝 Parsed Addresses Preview ({len(parsed_df)} rows)")
                 st.dataframe(parsed_df.head())
 
                 csv = parsed_df.to_csv(index=False).encode("utf-8")
