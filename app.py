@@ -23,9 +23,8 @@ def load_schools():
 
 st.title("School Community Address Finder")
 st.caption(
-    "Find addresses near your selected school site for stakeholder notification and community engagement. "
-    "Draw rectangles or polygons on the map to select exactly the blocks or areas you want included. "
-    "Only addresses inside your drawn shapes will be exported for download."
+    "Draw a circle, rectangle, or polygon to select addresses within your area. "
+    "The radius of circles will be displayed, and only addresses inside the shapes will be exported."
 )
 
 schools = load_schools()
@@ -54,7 +53,7 @@ if site_selected:
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
 
-    # --- Enable Draw plugin ---
+    # Enable draw with circle
     draw = Draw(
         export=True,
         filename='drawn.geojson',
@@ -62,7 +61,7 @@ if site_selected:
         draw_options={
             'polyline': False,
             'rectangle': True,
-            'circle': False,  # circles disabled for filtering (to keep it simple)
+            'circle': True,  # now enabled
             'polygon': True,
             'marker': False,
             'circlemarker': False,
@@ -71,10 +70,7 @@ if site_selected:
     )
     draw.add_to(fmap)
 
-    # --- Add measuring tool ---
-    fmap.add_child(MeasureControl(primary_length_unit='meters'))
-
-    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed. You can also use the measure tool to check distances before drawing.**")
+    st.write("**Draw a circle, rectangle, or polygon on the map. Circles will show radius and filter addresses inside them.**")
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
@@ -84,42 +80,56 @@ if site_selected:
         features = [map_data["last_active_drawing"]]
 
     if st.button("Filter Addresses in Drawn Area(s)"):
-        st.write(f"Features drawn: {len(features)}" if features else "Features drawn: 0")
         if not features or len(features) == 0:
-            st.warning("Please draw at least one rectangle or polygon to select blocks.")
+            st.warning("Please draw at least one shape to select blocks.")
+            st.stop()
+
+        polygons = []
+        circles_info = []
+
+        for feature in features:
+            try:
+                geojson_geom = feature["geometry"]
+                if geojson_geom["type"] == "Polygon":
+                    polygons.append(shape(geojson_geom))
+                elif geojson_geom["type"] == "Point" and "radius" in feature:
+                    center = Point(geojson_geom["coordinates"])
+                    radius_m = feature["radius"]
+                    # convert radius in meters to degrees roughly (valid near equator)
+                    radius_deg = radius_m / 111_320
+                    circle = center.buffer(radius_deg)
+                    polygons.append(circle)
+                    circles_info.append((center, radius_m))
+            except Exception as e:
+                st.error(f"Could not interpret a drawn shape: {e}")
+
+        if not polygons:
+            st.error("No valid shapes drawn.")
+            st.stop()
+
+        # Show circle info
+        for i, (center, radius) in enumerate(circles_info, 1):
+            st.write(f"Circle {i}: Center at {center.x:.5f}, {center.y:.5f}, Radius ≈ {radius:.1f} meters")
+
+        def point_in_polygons(row):
+            pt = Point(row["LON"], row["LAT"])
+            return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
+
+        filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
+
+        st.write(f"Filtered addresses count: {len(filtered)}")
+        if not filtered.empty:
+            st.write("Preview of addresses found in area:")
+            st.write(filtered[["FullAddress"]].head(5))
+            csv = filtered[["FullAddress"]].rename(columns={"FullAddress": "Address"}).to_csv(index=False)
+            st.download_button(
+                label=f"Download Addresses ({site_selected}_custom_blocks.csv)",
+                data=csv,
+                file_name=f"{site_selected.replace(' ', '_')}_custom_blocks.csv",
+                mime='text/csv'
+            )
         else:
-            polygons = []
-            for feature in features:
-                try:
-                    geojson_geom = feature["geometry"]
-                    shapely_geom = shape(geojson_geom)
-                    polygons.append(shapely_geom)
-                except Exception as e:
-                    st.error(f"Could not interpret a drawn shape: {e}")
-
-            if not polygons:
-                st.error("No valid polygons drawn.")
-                st.stop()
-
-            def point_in_polygons(row):
-                pt = Point(row["LON"], row["LAT"])
-                return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
-
-            filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
-
-            st.write(f"Filtered addresses count: {len(filtered)}")
-            if not filtered.empty:
-                st.write("Preview of addresses found in area:")
-                st.write(filtered[["FullAddress"]].head(5))  # Show a sample
-                csv = filtered[["FullAddress"]].rename(columns={"FullAddress": "Address"}).to_csv(index=False)
-                st.download_button(
-                    label=f"Download Addresses ({site_selected}_custom_blocks.csv)",
-                    data=csv,
-                    file_name=f"{site_selected.replace(' ', '_')}_custom_blocks.csv",
-                    mime='text/csv'
-                )
-            else:
-                st.info("No addresses found within the drawn area(s).")
+            st.info("No addresses found within the drawn area(s).")
 
 else:
     st.info("Select a campus above to begin.")
