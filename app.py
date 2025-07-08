@@ -36,6 +36,7 @@ def parse_address(line):
                 parsed.get("StreetNamePostType", ""),
                 parsed.get("StreetNamePostDirectional", ""),
             ]).strip(),
+            "Unit": parsed.get("OccupancyIdentifier", ""),
             "City": parsed.get("PlaceName", ""),
             "State": parsed.get("StateName", ""),
             "ZIP": parsed.get("ZipCode", ""),
@@ -45,17 +46,18 @@ def parse_address(line):
         return {
             "House Number": "",
             "Street": "",
+            "Unit": "",
             "City": "",
             "State": "",
             "ZIP": "",
             "Original": line
         }
 
-st.title("📍 School Community Address Finder & Parser")
+st.title("📍 School Community Address Finder")
 st.caption(
-    "Draw a circle, rectangle, or polygon on the map to select addresses. "
-    "Filtered addresses will be parsed into components and available for download. "
-    "Parsed results appear above the map."
+    "Find addresses near your selected school site for stakeholder notification and community engagement. "
+    "Draw rectangles or polygons on the map to select exactly the blocks or areas you want included. "
+    "Only addresses inside your drawn shapes will be exported for download."
 )
 
 schools = load_schools()
@@ -63,7 +65,6 @@ schools.columns = schools.columns.str.strip()
 site_list = schools["LABEL"].sort_values().tolist()
 site_selected = st.selectbox("Select Campus", site_list)
 
-# container to show results *above the map*
 result_container = st.container()
 
 if site_selected:
@@ -90,7 +91,7 @@ if site_selected:
         draw_options={
             'polyline': False,
             'rectangle': True,
-            'circle': True,
+            'circle': False,  # turned off to avoid confusion
             'polygon': True,
             'marker': False,
             'circlemarker': False,
@@ -99,7 +100,7 @@ if site_selected:
     )
     draw.add_to(fmap)
 
-    st.write("**Draw one or more shapes on the map. Circles, rectangles, and polygons are supported.**")
+    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed.**")
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
@@ -120,12 +121,6 @@ if site_selected:
                 geojson_geom = feature["geometry"]
                 if geojson_geom["type"] == "Polygon":
                     polygons.append(shape(geojson_geom))
-                elif geojson_geom["type"] == "Point" and "radius" in feature:
-                    center = Point(geojson_geom["coordinates"])
-                    radius_m = feature["radius"]
-                    radius_deg = radius_m / 111_320
-                    circle = center.buffer(radius_deg)
-                    polygons.append(circle)
             except Exception as e:
                 result_container.error(f"Could not interpret a drawn shape: {e}")
 
