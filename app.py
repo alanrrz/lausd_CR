@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import folium
-from folium.plugins import Draw
+from folium.plugins import Draw, MeasureControl
 from streamlit_folium import st_folium
 from shapely.geometry import Point, shape
 import usaddress
@@ -57,6 +57,7 @@ st.title("📍 School Community Address Finder")
 st.caption(
     "Find addresses near your selected school site for stakeholder notification and community engagement. "
     "Draw rectangles or polygons on the map to select exactly the blocks or areas you want included. "
+    "You can also measure distances (in miles) to get a sense of scale. "
     "Only addresses inside your drawn shapes will be exported for download."
 )
 
@@ -84,6 +85,7 @@ if site_selected:
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
 
+    # Draw shapes
     draw = Draw(
         export=True,
         filename='drawn.geojson',
@@ -91,7 +93,7 @@ if site_selected:
         draw_options={
             'polyline': False,
             'rectangle': True,
-            'circle': False,  # turned off to avoid confusion
+            'circle': False,
             'polygon': True,
             'marker': False,
             'circlemarker': False,
@@ -100,7 +102,10 @@ if site_selected:
     )
     draw.add_to(fmap)
 
-    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed.**")
+    # Add measuring tool in miles
+    fmap.add_child(MeasureControl(primary_length_unit='miles'))
+
+    st.write("**Draw one or more rectangles or polygons on the map. You can also use the measuring tool to check distances in miles.**")
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
