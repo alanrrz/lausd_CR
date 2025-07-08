@@ -107,18 +107,17 @@ if site_selected:
             st.stop()
 
         # Show circle info in miles
-for i, (center, radius_m) in enumerate(circles_info, 1):
-    radius_miles = radius_m * 0.000621371
-    st.markdown(
-        f"""
-        **Circle {i}**
-        - Center: ({center.y:.5f}, {center.x:.5f})
-        - Radius: ~ **{radius_miles:.2f} miles**
-        """
-    )
+        for i, (center, radius_m) in enumerate(circles_info, 1):
+            radius_miles = radius_m * 0.000621371
+            st.markdown(
+                f"""
+                **Circle {i}**
+                - Center: ({center.y:.5f}, {center.x:.5f})
+                - Radius: ~ **{radius_miles:.2f} miles**
+                """
+            )
 
-
-        # Filtering function
+        # 👇 properly indented here!
         def point_in_polygons(row):
             pt = Point(row["LON"], row["LAT"])
             return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
