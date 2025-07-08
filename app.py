@@ -108,8 +108,10 @@ if site_selected:
             st.stop()
 
         # Show circle info
-        for i, (center, radius) in enumerate(circles_info, 1):
-            st.write(f"Circle {i}: Center at {center.x:.5f}, {center.y:.5f}, Radius ≈ {radius:.1f} meters")
+    for i, (center, radius_meters) in enumerate(circles_info, 1):
+    radius_miles = radius_meters * 0.000621371
+    st.write(f"Circle {i}: Center at {center.x:.5f}, {center.y:.5f}, Radius ≈ {radius_miles:.2f} miles")
+
 
         def point_in_polygons(row):
             pt = Point(row["LON"], row["LAT"])
