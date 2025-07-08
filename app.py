@@ -51,16 +51,20 @@ def parse_address(line):
             "Original": line
         }
 
-st.title("School Community Address Finder & Parser")
+st.title("📍 School Community Address Finder & Parser")
 st.caption(
     "Draw a circle, rectangle, or polygon on the map to select addresses. "
-    "Filtered addresses will be parsed into components and available for download."
+    "Filtered addresses will be parsed into components and available for download. "
+    "Parsed results appear above the map."
 )
 
 schools = load_schools()
 schools.columns = schools.columns.str.strip()
 site_list = schools["LABEL"].sort_values().tolist()
 site_selected = st.selectbox("Select Campus", site_list)
+
+# container to show results *above the map*
+result_container = st.container()
 
 if site_selected:
     selected_school_row = schools[schools["LABEL"] == site_selected].iloc[0]
@@ -106,7 +110,7 @@ if site_selected:
 
     if st.button("Filter & Parse Addresses"):
         if not features or len(features) == 0:
-            st.warning("Please draw at least one shape.")
+            result_container.warning("Please draw at least one shape.")
             st.stop()
 
         polygons = []
@@ -123,10 +127,10 @@ if site_selected:
                     circle = center.buffer(radius_deg)
                     polygons.append(circle)
             except Exception as e:
-                st.error(f"Could not interpret a drawn shape: {e}")
+                result_container.error(f"Could not interpret a drawn shape: {e}")
 
         if not polygons:
-            st.error("No valid shapes drawn.")
+            result_container.error("No valid shapes drawn.")
             st.stop()
 
         def point_in_polygons(row):
@@ -135,28 +139,21 @@ if site_selected:
 
         filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
 
-        st.write(f"Filtered addresses count: {len(filtered)}")
-
-        if not filtered.empty:
-            st.write("Preview of filtered addresses:")
-            st.write(filtered[["FullAddress"]].head(5))
-
+        if filtered.empty:
+            result_container.info("No addresses found within the drawn area(s).")
+        else:
             parsed_rows = [parse_address(addr) for addr in filtered["FullAddress"].tolist()]
             parsed_df = pd.DataFrame(parsed_rows)
 
-            st.write("### 📝 Parsed Addresses Preview")
-            st.dataframe(parsed_df.head())
+            with result_container:
+                st.markdown(f"### 📝 Parsed Addresses Preview ({len(filtered)} addresses)")
+                st.dataframe(parsed_df.head())
 
-            csv = parsed_df.to_csv(index=False).encode("utf-8")
+                csv = parsed_df.to_csv(index=False).encode("utf-8")
 
-            st.download_button(
-                label=f"Download Parsed Addresses ({site_selected}_parsed.csv)",
-                data=csv,
-                file_name=f"{site_selected.replace(' ', '_')}_parsed.csv",
-                mime='text/csv'
-            )
-        else:
-            st.info("No addresses found within the drawn area(s).")
-
-else:
-    st.info("Select a campus above to begin.")
+                st.download_button(
+                    label=f"Download Parsed Addresses ({site_selected}_parsed.csv)",
+                    data=csv,
+                    file_name=f"{site_selected.replace(' ', '_')}_parsed.csv",
+                    mime='text/csv'
+                )
