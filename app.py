@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import folium
-from folium.plugins import Draw
+from folium.plugins import Draw, MeasureControl
 from streamlit_folium import st_folium
 from shapely.geometry import Point, shape
 
@@ -54,6 +54,7 @@ if site_selected:
     fmap = folium.Map(location=[slat, slon], zoom_start=15)
     folium.Marker([slat, slon], tooltip=site_selected, icon=folium.Icon(color="blue")).add_to(fmap)
 
+    # --- Enable Draw plugin ---
     draw = Draw(
         export=True,
         filename='drawn.geojson',
@@ -61,7 +62,7 @@ if site_selected:
         draw_options={
             'polyline': False,
             'rectangle': True,
-            'circle': False,
+            'circle': False,  # circles disabled for filtering (to keep it simple)
             'polygon': True,
             'marker': False,
             'circlemarker': False,
@@ -70,7 +71,10 @@ if site_selected:
     )
     draw.add_to(fmap)
 
-    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed.**")
+    # --- Add measuring tool ---
+    fmap.add_child(MeasureControl(primary_length_unit='meters'))
+
+    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed. You can also use the measure tool to check distances before drawing.**")
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
@@ -97,7 +101,6 @@ if site_selected:
                 st.error("No valid polygons drawn.")
                 st.stop()
 
-            # For each address, check if it's in ANY polygon
             def point_in_polygons(row):
                 pt = Point(row["LON"], row["LAT"])
                 return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
