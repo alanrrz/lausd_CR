@@ -1,9 +1,10 @@
+import streamlit as st
 import pandas as pd
-import numpy as np
 import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 from shapely.geometry import Point, shape
+import usaddress
 
 # --- REGION FILES ---
 REGION_URLS = {
@@ -20,11 +21,40 @@ SCHOOLS_URL = "https://raw.githubusercontent.com/alanrrz/la_buffer_app_clean/ab7
 def load_schools():
     return pd.read_csv(SCHOOLS_URL)
 
-st.title("School Community Address Finder")
+@st.cache_data
+def load_addresses(url):
+    return pd.read_csv(url)
+
+def parse_address(line):
+    try:
+        parsed, _ = usaddress.tag(line)
+        return {
+            "House Number": parsed.get("AddressNumber", ""),
+            "Street": " ".join([
+                parsed.get("StreetNamePreDirectional", ""),
+                parsed.get("StreetName", ""),
+                parsed.get("StreetNamePostType", ""),
+                parsed.get("StreetNamePostDirectional", ""),
+            ]).strip(),
+            "City": parsed.get("PlaceName", ""),
+            "State": parsed.get("StateName", ""),
+            "ZIP": parsed.get("ZipCode", ""),
+            "Original": line
+        }
+    except usaddress.RepeatedLabelError:
+        return {
+            "House Number": "",
+            "Street": "",
+            "City": "",
+            "State": "",
+            "ZIP": "",
+            "Original": line
+        }
+
+st.title("School Community Address Finder & Parser")
 st.caption(
-    "Find addresses near your selected school site for stakeholder notification and community engagement. "
-    "Draw rectangles or polygons on the map to select exactly the blocks or areas you want included. "
-    "Only addresses inside your drawn shapes will be exported for download."
+    "Draw a circle, rectangle, or polygon on the map to select addresses. "
+    "Filtered addresses will be parsed into components and available for download."
 )
 
 schools = load_schools()
@@ -41,10 +71,6 @@ if site_selected:
         st.error(f"No addresses file found for region: {school_region}")
         st.stop()
 
-    @st.cache_data
-    def load_addresses(url):
-        return pd.read_csv(url)
-
     addresses = load_addresses(REGION_URLS[school_region])
     addresses.columns = addresses.columns.str.strip()
     addresses["LAT"] = pd.to_numeric(addresses["LAT"], errors="coerce")
@@ -60,7 +86,7 @@ if site_selected:
         draw_options={
             'polyline': False,
             'rectangle': True,
-            'circle': False,
+            'circle': True,
             'polygon': True,
             'marker': False,
             'circlemarker': False,
@@ -69,7 +95,7 @@ if site_selected:
     )
     draw.add_to(fmap)
 
-    st.write("**Draw one or more rectangles or polygons on the map. Overlap is allowed.**")
+    st.write("**Draw one or more shapes on the map. Circles, rectangles, and polygons are supported.**")
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
@@ -78,44 +104,59 @@ if site_selected:
     elif map_data and "last_active_drawing" in map_data and map_data["last_active_drawing"]:
         features = [map_data["last_active_drawing"]]
 
-    if st.button("Filter Addresses in Drawn Area(s)"):
-        st.write(f"Features drawn: {len(features)}" if features else "Features drawn: 0")
+    if st.button("Filter & Parse Addresses"):
         if not features or len(features) == 0:
-            st.warning("Please draw at least one rectangle or polygon to select blocks.")
+            st.warning("Please draw at least one shape.")
+            st.stop()
+
+        polygons = []
+
+        for feature in features:
+            try:
+                geojson_geom = feature["geometry"]
+                if geojson_geom["type"] == "Polygon":
+                    polygons.append(shape(geojson_geom))
+                elif geojson_geom["type"] == "Point" and "radius" in feature:
+                    center = Point(geojson_geom["coordinates"])
+                    radius_m = feature["radius"]
+                    radius_deg = radius_m / 111_320
+                    circle = center.buffer(radius_deg)
+                    polygons.append(circle)
+            except Exception as e:
+                st.error(f"Could not interpret a drawn shape: {e}")
+
+        if not polygons:
+            st.error("No valid shapes drawn.")
+            st.stop()
+
+        def point_in_polygons(row):
+            pt = Point(row["LON"], row["LAT"])
+            return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
+
+        filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
+
+        st.write(f"Filtered addresses count: {len(filtered)}")
+
+        if not filtered.empty:
+            st.write("Preview of filtered addresses:")
+            st.write(filtered[["FullAddress"]].head(5))
+
+            parsed_rows = [parse_address(addr) for addr in filtered["FullAddress"].tolist()]
+            parsed_df = pd.DataFrame(parsed_rows)
+
+            st.write("### 📝 Parsed Addresses Preview")
+            st.dataframe(parsed_df.head())
+
+            csv = parsed_df.to_csv(index=False).encode("utf-8")
+
+            st.download_button(
+                label=f"Download Parsed Addresses ({site_selected}_parsed.csv)",
+                data=csv,
+                file_name=f"{site_selected.replace(' ', '_')}_parsed.csv",
+                mime='text/csv'
+            )
         else:
-            polygons = []
-            for feature in features:
-                try:
-                    geojson_geom = feature["geometry"]
-                    shapely_geom = shape(geojson_geom)
-                    polygons.append(shapely_geom)
-                except Exception as e:
-                    st.error(f"Could not interpret a drawn shape: {e}")
-
-            if not polygons:
-                st.error("No valid polygons drawn.")
-                st.stop()
-
-            # For each address, check if it's in ANY polygon
-            def point_in_polygons(row):
-                pt = Point(row["LON"], row["LAT"])
-                return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
-
-            filtered = addresses[addresses.apply(point_in_polygons, axis=1)]
-
-            st.write(f"Filtered addresses count: {len(filtered)}")
-            if not filtered.empty:
-                st.write("Preview of addresses found in area:")
-                st.write(filtered[["FullAddress"]].head(5))  # Show a sample
-                csv = filtered[["FullAddress"]].rename(columns={"FullAddress": "Address"}).to_csv(index=False)
-                st.download_button(
-                    label=f"Download Addresses ({site_selected}_custom_blocks.csv)",
-                    data=csv,
-                    file_name=f"{site_selected.replace(' ', '_')}_custom_blocks.csv",
-                    mime='text/csv'
-                )
-            else:
-                st.info("No addresses found within the drawn area(s).")
+            st.info("No addresses found within the drawn area(s).")
 
 else:
     st.info("Select a campus above to begin.")
