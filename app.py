@@ -24,7 +24,7 @@ def load_schools():
 st.title("School Community Address Finder")
 st.caption(
     "Draw a circle, rectangle, or polygon to select addresses within your area. "
-    "The radius of circles will be displayed, and only addresses inside the shapes will be exported."
+    "For circles, the radius is shown in miles. Only addresses inside the shapes will be exported."
 )
 
 schools = load_schools()
@@ -61,7 +61,7 @@ if site_selected:
         draw_options={
             'polyline': False,
             'rectangle': True,
-            'circle': True,  # now enabled
+            'circle': True,
             'polygon': True,
             'marker': False,
             'circlemarker': False,
@@ -70,7 +70,7 @@ if site_selected:
     )
     draw.add_to(fmap)
 
-    st.write("**Draw a circle, rectangle, or polygon on the map. Circles will show radius and filter addresses inside them.**")
+    st.write("**Draw a circle, rectangle, or polygon on the map. Circles will show radius in miles and filter addresses inside them.**")
     map_data = st_folium(fmap, width=700, height=500)
 
     features = []
@@ -95,8 +95,7 @@ if site_selected:
                 elif geojson_geom["type"] == "Point" and "radius" in feature:
                     center = Point(geojson_geom["coordinates"])
                     radius_m = feature["radius"]
-                    # convert radius in meters to degrees roughly (valid near equator)
-                    radius_deg = radius_m / 111_320
+                    radius_deg = radius_m / 111_320  # meters to degrees
                     circle = center.buffer(radius_deg)
                     polygons.append(circle)
                     circles_info.append((center, radius_m))
@@ -107,12 +106,12 @@ if site_selected:
             st.error("No valid shapes drawn.")
             st.stop()
 
-        # Show circle info
-for i, (center, radius_meters) in enumerate(circles_info, 1):
-    radius_miles = radius_meters * 0.000621371
-    st.write(f"Circle {i}: Center at {center.x:.5f}, {center.y:.5f}, Radius ≈ {radius_miles:.2f} miles")
+        # Show circle info in miles
+        for i, (center, radius_m) in enumerate(circles_info, 1):
+            radius_miles = radius_m * 0.000621371
+            st.write(f"Circle {i}: Center at {center.x:.5f}, {center.y:.5f}, Radius ≈ {radius_miles:.2f} miles")
 
-
+        # Filtering function
         def point_in_polygons(row):
             pt = Point(row["LON"], row["LAT"])
             return any(poly.contains(pt) or poly.touches(pt) for poly in polygons)
