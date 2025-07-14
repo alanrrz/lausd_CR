@@ -99,6 +99,7 @@ site_selected = st.selectbox("Select Campus", site_list)
 result_container = st.container()
 
 if site_selected:
+    st.session_state.setdefault("features", [])
     selected_school_row = schools[schools["LABEL"] == site_selected].iloc[0]
     school_region = selected_school_row["SHORTNAME"].upper()
     slon, slat = selected_school_row["LON"], selected_school_row["LAT"]
@@ -142,20 +143,27 @@ if site_selected:
 
     map_data = st_folium(fmap, width=700, height=500)
 
-    features = []
+    new_features = []
     if map_data and "all_drawings" in map_data and map_data["all_drawings"]:
-        features = map_data["all_drawings"]
+        new_features = map_data["all_drawings"]
     elif map_data and "last_active_drawing" in map_data and map_data["last_active_drawing"]:
-        features = [map_data["last_active_drawing"]]
+        new_features = [map_data["last_active_drawing"]]
+
+    for feat in new_features:
+        if feat not in st.session_state["features"]:
+            st.session_state["features"].append(feat)
+
+    if st.button("Clear drawings"):
+        st.session_state["features"] = []
 
     if st.button("Filter & Parse Addresses"):
-        if not features or len(features) == 0:
+        if not st.session_state["features"]:
             result_container.warning("Please draw at least one shape.")
             st.stop()
 
         polygons = []
 
-        for feature in features:
+        for feature in st.session_state["features"]:
             try:
                 geojson_geom = feature["geometry"]
                 if geojson_geom["type"] == "Polygon":
