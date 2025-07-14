@@ -40,7 +40,6 @@ def parse_address_expanded(line):
         state = parsed.get("StateName", "")
         zip_code = parsed.get("ZipCode", "")
 
-        hyphenated = "-" in line or "–" in line
         rows = []
         # expand unit if it's a range
         if unit and "-" in unit:
@@ -56,8 +55,7 @@ def parse_address_expanded(line):
                         "City": city,
                         "State": state,
                         "ZIP": zip_code,
-                        "Original": line,
-                        "Hyphenated": hyphenated
+                        "Original": line
                     })
                 return rows
         # fallback — single row
@@ -68,8 +66,7 @@ def parse_address_expanded(line):
             "City": city,
             "State": state,
             "ZIP": zip_code,
-            "Original": line,
-            "Hyphenated": hyphenated
+            "Original": line
         }]
     except usaddress.RepeatedLabelError:
         return [{
@@ -79,8 +76,7 @@ def parse_address_expanded(line):
             "City": "",
             "State": "",
             "ZIP": "",
-            "Original": line,
-            "Hyphenated": False
+            "Original": line
         }]
 
 st.title("📍 School Community Address Finder")
@@ -99,7 +95,6 @@ site_selected = st.selectbox("Select Campus", site_list)
 result_container = st.container()
 
 if site_selected:
-    st.session_state.setdefault("features", [])
     selected_school_row = schools[schools["LABEL"] == site_selected].iloc[0]
     school_region = selected_school_row["SHORTNAME"].upper()
     slon, slat = selected_school_row["LON"], selected_school_row["LAT"]
@@ -143,27 +138,20 @@ if site_selected:
 
     map_data = st_folium(fmap, width=700, height=500)
 
-    new_features = []
+    features = []
     if map_data and "all_drawings" in map_data and map_data["all_drawings"]:
-        new_features = map_data["all_drawings"]
+        features = map_data["all_drawings"]
     elif map_data and "last_active_drawing" in map_data and map_data["last_active_drawing"]:
-        new_features = [map_data["last_active_drawing"]]
-
-    for feat in new_features:
-        if feat not in st.session_state["features"]:
-            st.session_state["features"].append(feat)
-
-    if st.button("Clear drawings"):
-        st.session_state["features"] = []
+        features = [map_data["last_active_drawing"]]
 
     if st.button("Filter & Parse Addresses"):
-        if not st.session_state["features"]:
+        if not features or len(features) == 0:
             result_container.warning("Please draw at least one shape.")
             st.stop()
 
         polygons = []
 
-        for feature in st.session_state["features"]:
+        for feature in features:
             try:
                 geojson_geom = feature["geometry"]
                 if geojson_geom["type"] == "Polygon":
@@ -184,40 +172,15 @@ if site_selected:
         if filtered.empty:
             result_container.info("No addresses found within the drawn area(s).")
         else:
-            for _, addr_row in filtered.iterrows():
-                full_address = str(addr_row.get("FullAddress", ""))
-                is_hyphen = "-" in full_address or "–" in full_address
-                color = "red" if is_hyphen else "green"
-                folium.CircleMarker(
-                    [addr_row["LAT"], addr_row["LON"]],
-                    radius=4,
-                    color=color,
-                    fill=True,
-                    fill_color=color,
-                    fill_opacity=0.7,
-                    tooltip=addr_row["FullAddress"],
-                ).add_to(fmap)
-
-            st_folium(fmap, width=700, height=500)
-            st.caption("Red markers = hyphenated addresses")
-
             all_rows = []
             for addr in filtered["FullAddress"].tolist():
                 all_rows.extend(parse_address_expanded(addr))
 
             parsed_df = pd.DataFrame(all_rows)
 
-            def highlight_hyphen(row):
-                if row.get("Hyphenated"):
-                    return ["background-color: #fff3cd" for _ in row]
-                return ["" for _ in row]
-
             with result_container:
                 st.markdown(f"### 📝 Parsed Addresses Preview ({len(parsed_df)} rows)")
-                st.dataframe(
-                    parsed_df.style.apply(highlight_hyphen, axis=1),
-                    use_container_width=True,
-                )
+                st.dataframe(parsed_df.head())
 
                 csv = parsed_df.to_csv(index=False).encode("utf-8")
 
