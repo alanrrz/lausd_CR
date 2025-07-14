@@ -40,7 +40,7 @@ def parse_address_expanded(line):
         state = parsed.get("StateName", "")
         zip_code = parsed.get("ZipCode", "")
 
-        hyphenated = "-" in line
+        hyphenated = "-" in line or "–" in line
         rows = []
         # expand unit if it's a range
         if unit and "-" in unit:
@@ -177,7 +177,8 @@ if site_selected:
             result_container.info("No addresses found within the drawn area(s).")
         else:
             for _, addr_row in filtered.iterrows():
-                is_hyphen = "-" in str(addr_row.get("FullAddress", ""))
+                full_address = str(addr_row.get("FullAddress", ""))
+                is_hyphen = "-" in full_address or "–" in full_address
                 color = "red" if is_hyphen else "green"
                 folium.CircleMarker(
                     [addr_row["LAT"], addr_row["LON"]],
@@ -190,6 +191,7 @@ if site_selected:
                 ).add_to(fmap)
 
             st_folium(fmap, width=700, height=500)
+            st.caption("Red markers = hyphenated addresses")
 
             all_rows = []
             for addr in filtered["FullAddress"].tolist():
