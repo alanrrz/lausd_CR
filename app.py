@@ -100,7 +100,7 @@ if site_selected:
     slon, slat = selected_school_row["LON"], selected_school_row["LAT"]
 
     if school_region not in REGION_URLS:
-        st.error(f"No addresses file found for region: {school_region}")
+        st.error(f"No address file found for region: {school_region}")
         st.stop()
 
     addresses = load_addresses(REGION_URLS[school_region])
