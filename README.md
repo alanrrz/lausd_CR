@@ -19,3 +19,11 @@ streamlit run app.py
 ```
 
 The app will download data from remote URLs when it runs, so an internet connection is required.
+
+## Features
+
+- Draw polygons or rectangles on the map to select areas of interest.
+- Markers appear for every address inside the selected shapes.
+- Hyphenated addresses, often indicating multi-unit buildings, are shown in red.
+- A preview table highlights rows parsed from hyphenated input.
+
