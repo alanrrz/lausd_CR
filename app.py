@@ -36,6 +36,7 @@ def parse_address_expanded(line):
             parsed.get("StreetNamePostDirectional", ""),
         ]).strip()
         unit = parsed.get("OccupancyIdentifier", "")
+        hyphenated = False
         city = parsed.get("PlaceName", "")
         state = parsed.get("StateName", "")
         zip_code = parsed.get("ZipCode", "")
@@ -45,6 +46,7 @@ def parse_address_expanded(line):
         if unit and "-" in unit:
             parts = unit.replace("–", "-").split("-")
             if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                hyphenated = True
                 start = int(parts[0])
                 end = int(parts[1])
                 for u in range(start, end + 1):
@@ -55,7 +57,8 @@ def parse_address_expanded(line):
                         "City": city,
                         "State": state,
                         "ZIP": zip_code,
-                        "Original": line
+                        "Original": line,
+                        "Hyphenated": True
                     })
                 return rows
         # fallback — single row
@@ -66,7 +69,8 @@ def parse_address_expanded(line):
             "City": city,
             "State": state,
             "ZIP": zip_code,
-            "Original": line
+            "Original": line,
+            "Hyphenated": hyphenated
         }]
     except usaddress.RepeatedLabelError:
         return [{
@@ -172,6 +176,21 @@ if site_selected:
         if filtered.empty:
             result_container.info("No addresses found within the drawn area(s).")
         else:
+            filtered = filtered.copy()
+            filtered["Hyphenated"] = filtered["FullAddress"].str.contains("-")
+
+            for _, row in filtered.iterrows():
+                color = "red" if row["Hyphenated"] else "green"
+                folium.CircleMarker(
+                    [row["LAT"], row["LON"]],
+                    radius=5,
+                    color=color,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=0.8,
+                    tooltip=row["FullAddress"],
+                ).add_to(fmap)
+
             all_rows = []
             for addr in filtered["FullAddress"].tolist():
                 all_rows.extend(parse_address_expanded(addr))
@@ -179,6 +198,7 @@ if site_selected:
             parsed_df = pd.DataFrame(all_rows)
 
             with result_container:
+                st_folium(fmap, width=700, height=500)
                 st.markdown(f"### 📝 Parsed Addresses Preview ({len(parsed_df)} rows)")
                 st.dataframe(parsed_df.head())
 
