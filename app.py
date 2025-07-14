@@ -1,3 +1,6 @@
+
+**`app.py`**
+```python
 import streamlit as st
 import pandas as pd
 import folium
@@ -36,17 +39,16 @@ def parse_address_expanded(line):
             parsed.get("StreetNamePostDirectional", ""),
         ]).strip()
         unit = parsed.get("OccupancyIdentifier", "")
-        hyphenated = False
         city = parsed.get("PlaceName", "")
         state = parsed.get("StateName", "")
         zip_code = parsed.get("ZipCode", "")
 
+        hyphenated = "-" in line or "–" in line
         rows = []
         # expand unit if it's a range
         if unit and "-" in unit:
             parts = unit.replace("–", "-").split("-")
             if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-                hyphenated = True
                 start = int(parts[0])
                 end = int(parts[1])
                 for u in range(start, end + 1):
@@ -58,7 +60,7 @@ def parse_address_expanded(line):
                         "State": state,
                         "ZIP": zip_code,
                         "Original": line,
-                        "Hyphenated": True
+                        "Hyphenated": hyphenated
                     })
                 return rows
         # fallback — single row
@@ -80,7 +82,8 @@ def parse_address_expanded(line):
             "City": "",
             "State": "",
             "ZIP": "",
-            "Original": line
+            "Original": line,
+            "Hyphenated": False
         }]
 
 st.title("📍 School Community Address Finder")
@@ -176,20 +179,22 @@ if site_selected:
         if filtered.empty:
             result_container.info("No addresses found within the drawn area(s).")
         else:
-            filtered = filtered.copy()
-            filtered["Hyphenated"] = filtered["FullAddress"].str.contains("-")
-
-            for _, row in filtered.iterrows():
-                color = "red" if row["Hyphenated"] else "green"
+            for _, addr_row in filtered.iterrows():
+                full_address = str(addr_row.get("FullAddress", ""))
+                is_hyphen = "-" in full_address or "–" in full_address
+                color = "red" if is_hyphen else "green"
                 folium.CircleMarker(
-                    [row["LAT"], row["LON"]],
-                    radius=5,
+                    [addr_row["LAT"], addr_row["LON"]],
+                    radius=4,
                     color=color,
                     fill=True,
                     fill_color=color,
-                    fill_opacity=0.8,
-                    tooltip=row["FullAddress"],
+                    fill_opacity=0.7,
+                    tooltip=addr_row["FullAddress"],
                 ).add_to(fmap)
+
+            st_folium(fmap, width=700, height=500)
+            st.caption("Red markers = hyphenated addresses")
 
             all_rows = []
             for addr in filtered["FullAddress"].tolist():
@@ -197,10 +202,17 @@ if site_selected:
 
             parsed_df = pd.DataFrame(all_rows)
 
+            def highlight_hyphen(row):
+                if row.get("Hyphenated"):
+                    return ["background-color: #fff3cd" for _ in row]
+                return ["" for _ in row]
+
             with result_container:
-                st_folium(fmap, width=700, height=500)
                 st.markdown(f"### 📝 Parsed Addresses Preview ({len(parsed_df)} rows)")
-                st.dataframe(parsed_df.head())
+                st.dataframe(
+                    parsed_df.style.apply(highlight_hyphen, axis=1),
+                    use_container_width=True,
+                )
 
                 csv = parsed_df.to_csv(index=False).encode("utf-8")
 
