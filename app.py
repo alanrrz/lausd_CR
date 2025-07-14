@@ -40,6 +40,7 @@ def parse_address_expanded(line):
         state = parsed.get("StateName", "")
         zip_code = parsed.get("ZipCode", "")
 
+        hyphenated = "-" in line
         rows = []
         # expand unit if it's a range
         if unit and "-" in unit:
@@ -55,7 +56,8 @@ def parse_address_expanded(line):
                         "City": city,
                         "State": state,
                         "ZIP": zip_code,
-                        "Original": line
+                        "Original": line,
+                        "Hyphenated": hyphenated
                     })
                 return rows
         # fallback — single row
@@ -66,7 +68,8 @@ def parse_address_expanded(line):
             "City": city,
             "State": state,
             "ZIP": zip_code,
-            "Original": line
+            "Original": line,
+            "Hyphenated": hyphenated
         }]
     except usaddress.RepeatedLabelError:
         return [{
@@ -76,7 +79,8 @@ def parse_address_expanded(line):
             "City": "",
             "State": "",
             "ZIP": "",
-            "Original": line
+            "Original": line,
+            "Hyphenated": False
         }]
 
 st.title("📍 School Community Address Finder")
@@ -172,15 +176,38 @@ if site_selected:
         if filtered.empty:
             result_container.info("No addresses found within the drawn area(s).")
         else:
+            for _, addr_row in filtered.iterrows():
+                is_hyphen = "-" in str(addr_row.get("FullAddress", ""))
+                color = "red" if is_hyphen else "green"
+                folium.CircleMarker(
+                    [addr_row["LAT"], addr_row["LON"]],
+                    radius=4,
+                    color=color,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=0.7,
+                    tooltip=addr_row["FullAddress"],
+                ).add_to(fmap)
+
+            st_folium(fmap, width=700, height=500)
+
             all_rows = []
             for addr in filtered["FullAddress"].tolist():
                 all_rows.extend(parse_address_expanded(addr))
 
             parsed_df = pd.DataFrame(all_rows)
 
+            def highlight_hyphen(row):
+                if row.get("Hyphenated"):
+                    return ["background-color: #fff3cd" for _ in row]
+                return ["" for _ in row]
+
             with result_container:
                 st.markdown(f"### 📝 Parsed Addresses Preview ({len(parsed_df)} rows)")
-                st.dataframe(parsed_df.head())
+                st.dataframe(
+                    parsed_df.style.apply(highlight_hyphen, axis=1),
+                    use_container_width=True,
+                )
 
                 csv = parsed_df.to_csv(index=False).encode("utf-8")
 
