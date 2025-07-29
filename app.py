@@ -35,6 +35,7 @@ def parse_address_expanded(line):
             parsed.get("StreetNamePostType", ""),
             parsed.get("StreetNamePostDirectional", ""),
         ]).strip()
+        full_address = f"{house_num} {street}".strip()
         unit = parsed.get("OccupancyIdentifier", "")
         city = parsed.get("PlaceName", "")
         state = parsed.get("StateName", "")
@@ -49,8 +50,7 @@ def parse_address_expanded(line):
                 end = int(parts[1])
                 for u in range(start, end + 1):
                     rows.append({
-                        "House Number": house_num,
-                        "Street": street,
+                        "Address": full_address,
                         "Unit": str(u),
                         "City": city,
                         "State": state,
@@ -60,8 +60,7 @@ def parse_address_expanded(line):
                 return rows
         # fallback — single row
         return [{
-            "House Number": house_num,
-            "Street": street,
+            "Address": full_address,
             "Unit": unit,
             "City": city,
             "State": state,
@@ -70,8 +69,7 @@ def parse_address_expanded(line):
         }]
     except usaddress.RepeatedLabelError:
         return [{
-            "House Number": "",
-            "Street": "",
+            "Address": "",
             "Unit": "",
             "City": "",
             "State": "",
